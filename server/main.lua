@@ -13,33 +13,13 @@ local function IsWeaponBlocked(WeaponName)
     return retval
 end
 
-local function HasAttachment(component, attachments)
-    local retval = false
-    local key = nil
-    for k, v in pairs(attachments) do
-        if v.component == component then
-            key = k
-            retval = true
-        end
-    end
-    return retval, key
-end
-
-local function GetAttachmentType(attachments)
-    local attype = nil
-    for _, v in pairs(attachments) do
-        attype = v.type
-    end
-    return attype
-end
-
 -- Callback
 
-QBCore.Functions.CreateCallback("weapons:server:GetConfig", function(_, cb)
+QBCore.Functions.CreateCallback('qb-weapons:server:GetConfig', function(_, cb)
     cb(Config.WeaponRepairPoints)
 end)
 
-QBCore.Functions.CreateCallback("weapon:server:GetWeaponAmmo", function(source, cb, WeaponData)
+QBCore.Functions.CreateCallback('weapon:server:GetWeaponAmmo', function(source, cb, WeaponData)
     local Player = QBCore.Functions.GetPlayer(source)
     local retval = 0
     if WeaponData then
@@ -53,99 +33,82 @@ QBCore.Functions.CreateCallback("weapon:server:GetWeaponAmmo", function(source, 
     cb(retval, WeaponData.name)
 end)
 
-QBCore.Functions.CreateCallback('weapons:server:RemoveAttachment', function(source, cb, AttachmentData, ItemData)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    local Inventory = Player.PlayerData.items
-    local AttachmentComponent = WeaponAttachments[ItemData.name:upper()][AttachmentData.attachment]
-    if Inventory[ItemData.slot] then
-        if Inventory[ItemData.slot].info.attachments and next(Inventory[ItemData.slot].info.attachments) then
-            local HasAttach, key = HasAttachment(AttachmentComponent.component, Inventory[ItemData.slot].info.attachments)
-            if HasAttach then
-                table.remove(Inventory[ItemData.slot].info.attachments, key)
-                Player.Functions.SetInventory(Player.PlayerData.items, true)
-                Player.Functions.AddItem(AttachmentComponent.item, 1)
-                TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[AttachmentComponent.item], "add")
-                TriggerClientEvent("QBCore:Notify", src, Lang:t('info.removed_attachment', { value = QBCore.Shared.Items[AttachmentComponent.item].label }), "error")
-                cb(Inventory[ItemData.slot].info.attachments)
-            else
-                cb(false)
-            end
-        else
-            cb(false)
-        end
-    else
-        cb(false)
-    end
-end)
-
-QBCore.Functions.CreateCallback("weapons:server:RepairWeapon", function(source, cb, RepairPoint, data)
+QBCore.Functions.CreateCallback('qb-weapons:server:RepairWeapon', function(source, cb, RepairPoint, data)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     local minute = 60 * 1000
     local Timeout = math.random(5 * minute, 10 * minute)
     local WeaponData = QBCore.Shared.Weapons[GetHashKey(data.name)]
-    local WeaponClass = (QBCore.Shared.SplitStr(WeaponData.ammotype, "_")[2]):lower()
+    local WeaponClass = (QBCore.Shared.SplitStr(WeaponData.ammotype, '_')[2]):lower()
 
-    if Player.PlayerData.items[data.slot] then
-        if Player.PlayerData.items[data.slot].info.quality then
-            if Player.PlayerData.items[data.slot].info.quality ~= 100 then
-                if Player.Functions.RemoveMoney('cash', Config.WeaponRepairCosts[WeaponClass]) then
-                    Config.WeaponRepairPoints[RepairPoint].IsRepairing = true
-                    Config.WeaponRepairPoints[RepairPoint].RepairingData = {
-                        CitizenId = Player.PlayerData.citizenid,
-                        WeaponData = Player.PlayerData.items[data.slot],
-                        Ready = false,
-                    }
-                    Player.Functions.RemoveItem(data.name, 1, data.slot)
-                    TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[data.name], "remove")
-                    TriggerClientEvent("inventory:client:CheckWeapon", src, data.name)
-                    TriggerClientEvent('weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
-
-                    SetTimeout(Timeout, function()
-                        Config.WeaponRepairPoints[RepairPoint].IsRepairing = false
-                        Config.WeaponRepairPoints[RepairPoint].RepairingData.Ready = true
-                        TriggerClientEvent('weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
-                        exports['qb-phone']:sendNewMailToOffline(Player.PlayerData.citizenid, {
-                            sender = Lang:t('mail.sender'),
-                            subject = Lang:t('mail.subject'),
-                            message = Lang:t('mail.message', { value = WeaponData.label })
-                        })
-                        SetTimeout(7 * 60000, function()
-                            if Config.WeaponRepairPoints[RepairPoint].RepairingData.Ready then
-                                Config.WeaponRepairPoints[RepairPoint].IsRepairing = false
-                                Config.WeaponRepairPoints[RepairPoint].RepairingData = {}
-                                TriggerClientEvent('weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
-                            end
-                        end)
-                    end)
-                    cb(true)
-                else
-                    cb(false)
-                end
-            else
-                TriggerClientEvent("QBCore:Notify", src, Lang:t('error.no_damage_on_weapon'), "error")
-                cb(false)
-            end
-        else
-            TriggerClientEvent("QBCore:Notify", src, Lang:t('error.no_damage_on_weapon'), "error")
-            cb(false)
-        end
-    else
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_weapon_in_hand'), "error")
-        TriggerClientEvent('weapons:client:SetCurrentWeapon', src, {}, false)
+    if not Player then
         cb(false)
+        return
     end
+
+    if not Player.PlayerData.items[data.slot] then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_weapon_in_hand'), 'error')
+        TriggerClientEvent('qb-weapons:client:SetCurrentWeapon', src, {}, false)
+        cb(false)
+        return
+    end
+
+    if not Player.PlayerData.items[data.slot].info.quality or Player.PlayerData.items[data.slot].info.quality == 100 then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_damage_on_weapon'), 'error')
+        cb(false)
+        return
+    end
+
+    if not Player.Functions.RemoveMoney('cash', Config.WeaponRepairCosts[WeaponClass]) then
+        cb(false)
+        return
+    end
+
+    Config.WeaponRepairPoints[RepairPoint].IsRepairing = true
+    Config.WeaponRepairPoints[RepairPoint].RepairingData = {
+        CitizenId = Player.PlayerData.citizenid,
+        WeaponData = Player.PlayerData.items[data.slot],
+        Ready = false,
+    }
+
+    if not exports['qb-inventory']:RemoveItem(src, data.name, 1, data.slot, 'qb-weapons:server:RepairWeapon') then
+        Player.Functions.AddMoney('cash', Config.WeaponRepairCosts[WeaponClass], 'qb-weapons:server:RepairWeapon')
+        return
+    end
+
+    TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[data.name], 'remove')
+    TriggerClientEvent('qb-inventory:client:CheckWeapon', src, data.name)
+    TriggerClientEvent('qb-weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
+
+    SetTimeout(Timeout, function()
+        Config.WeaponRepairPoints[RepairPoint].IsRepairing = false
+        Config.WeaponRepairPoints[RepairPoint].RepairingData.Ready = true
+        TriggerClientEvent('qb-weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
+        exports['qb-phone']:sendNewMailToOffline(Player.PlayerData.citizenid, {
+            sender = Lang:t('mail.sender'),
+            subject = Lang:t('mail.subject'),
+            message = Lang:t('mail.message', { value = WeaponData.label })
+        })
+
+        SetTimeout(7 * 60000, function()
+            if Config.WeaponRepairPoints[RepairPoint].RepairingData.Ready then
+                Config.WeaponRepairPoints[RepairPoint].IsRepairing = false
+                Config.WeaponRepairPoints[RepairPoint].RepairingData = {}
+                TriggerClientEvent('qb-weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[RepairPoint], RepairPoint)
+            end
+        end)
+    end)
+
+    cb(true)
 end)
 
 QBCore.Functions.CreateCallback('prison:server:checkThrowable', function(source, cb, weapon)
     local Player = QBCore.Functions.GetPlayer(source)
-
     if not Player then return cb(false) end
     local throwable = false
-    for _,v in pairs(Config.Throwables) do
-        if QBCore.Shared.Weapons[weapon].name == 'weapon_'..v then
-            Player.Functions.RemoveItem('weapon_'..v, 1)
+    for _, v in pairs(Config.Throwables) do
+        if QBCore.Shared.Weapons[weapon].name == 'weapon_' .. v then
+            if not exports['qb-inventory']:RemoveItem(source, 'weapon_' .. v, 1, false, 'prison:server:checkThrowable') then return cb(false) end
             throwable = true
             break
         end
@@ -155,9 +118,10 @@ end)
 
 -- Events
 
-RegisterNetEvent("weapons:server:UpdateWeaponAmmo", function(CurrentWeaponData, amount)
+RegisterNetEvent('qb-weapons:server:UpdateWeaponAmmo', function(CurrentWeaponData, amount)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
     amount = tonumber(amount)
     if CurrentWeaponData then
         if Player.PlayerData.items[CurrentWeaponData.slot] then
@@ -167,20 +131,20 @@ RegisterNetEvent("weapons:server:UpdateWeaponAmmo", function(CurrentWeaponData, 
     end
 end)
 
-RegisterNetEvent("weapons:server:TakeBackWeapon", function(k)
+RegisterNetEvent('qb-weapons:server:TakeBackWeapon', function(k)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
     local itemdata = Config.WeaponRepairPoints[k].RepairingData.WeaponData
     itemdata.info.quality = 100
-    Player.Functions.AddItem(itemdata.name, 1, false, itemdata.info)
-    TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[itemdata.name], "add")
+    exports['qb-inventory']:AddItem(src, itemdata.name, 1, false, itemdata.info, 'qb-weapons:server:TakeBackWeapon')
+    TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[itemdata.name], 'add')
     Config.WeaponRepairPoints[k].IsRepairing = false
     Config.WeaponRepairPoints[k].RepairingData = {}
-    TriggerClientEvent('weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[k], k)
+    TriggerClientEvent('qb-weapons:client:SyncRepairShops', -1, Config.WeaponRepairPoints[k], k)
 end)
 
-RegisterNetEvent("weapons:server:SetWeaponQuality", function(data, hp)
+RegisterNetEvent('qb-weapons:server:SetWeaponQuality', function(data, hp)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
@@ -189,7 +153,7 @@ RegisterNetEvent("weapons:server:SetWeaponQuality", function(data, hp)
     Player.Functions.SetInventory(Player.PlayerData.items, true)
 end)
 
-RegisterNetEvent('weapons:server:UpdateWeaponQuality', function(data, RepeatAmount)
+RegisterNetEvent('qb-weapons:server:UpdateWeaponQuality', function(data, RepeatAmount)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     local WeaponData = QBCore.Shared.Weapons[GetHashKey(data.name)]
@@ -203,8 +167,8 @@ RegisterNetEvent('weapons:server:UpdateWeaponQuality', function(data, RepeatAmou
                         WeaponSlot.info.quality = WeaponSlot.info.quality - DecreaseAmount
                     else
                         WeaponSlot.info.quality = 0
-                        TriggerClientEvent('inventory:client:UseWeapon', src, data, false)
-                        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.weapon_broken_need_repair'), "error")
+                        TriggerClientEvent('qb-weapons:client:UseWeapon', src, data, false)
+                        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.weapon_broken_need_repair'), 'error')
                         break
                     end
                 end
@@ -215,8 +179,8 @@ RegisterNetEvent('weapons:server:UpdateWeaponQuality', function(data, RepeatAmou
                         WeaponSlot.info.quality = WeaponSlot.info.quality - DecreaseAmount
                     else
                         WeaponSlot.info.quality = 0
-                        TriggerClientEvent('inventory:client:UseWeapon', src, data, false)
-                        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.weapon_broken_need_repair'), "error")
+                        TriggerClientEvent('qb-weapons:client:UseWeapon', src, data, false)
+                        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.weapon_broken_need_repair'), 'error')
                         break
                     end
                 end
@@ -226,560 +190,184 @@ RegisterNetEvent('weapons:server:UpdateWeaponQuality', function(data, RepeatAmou
     Player.Functions.SetInventory(Player.PlayerData.items, true)
 end)
 
-RegisterNetEvent("weapons:server:EquipAttachment", function(ItemData, CurrentWeaponData, AttachmentData)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    local Inventory = Player.PlayerData.items
-    local GiveBackItem = nil
-    if Inventory[CurrentWeaponData.slot] then
-        if Inventory[CurrentWeaponData.slot].info.attachments and next(Inventory[CurrentWeaponData.slot].info.attachments) then
-            local currenttype = GetAttachmentType(Inventory[CurrentWeaponData.slot].info.attachments)
-            local HasAttach, key = HasAttachment(AttachmentData.component, Inventory[CurrentWeaponData.slot].info.attachments)
-            if not HasAttach then
-                if AttachmentData.type ~=nil and currenttype == AttachmentData.type then
-                    for _, v in pairs(Inventory[CurrentWeaponData.slot].info.attachments) do
-                        if v.type and v.type == currenttype then
-                            GiveBackItem = tostring(v.item):lower()
-                            table.remove(Inventory[CurrentWeaponData.slot].info.attachments, key)
-                            TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[GiveBackItem], "add")
-                        end
-                    end
-                end
-                Inventory[CurrentWeaponData.slot].info.attachments[#Inventory[CurrentWeaponData.slot].info.attachments+1] = {
-                    component = AttachmentData.component,
-                    label = QBCore.Shared.Items[AttachmentData.item].label,
-                    item = AttachmentData.item,
-                    type = AttachmentData.type,
-                }
-                TriggerClientEvent("addAttachment", src, AttachmentData.component)
-                Player.Functions.SetInventory(Player.PlayerData.items, true)
-                Player.Functions.RemoveItem(ItemData.name, 1)
-                SetTimeout(1000, function()
-                    TriggerClientEvent('inventory:client:ItemBox', src, ItemData, "remove")
-                end)
-            else
-                TriggerClientEvent("QBCore:Notify", src, Lang:t('error.attachment_already_on_weapon' , { value = QBCore.Shared.Items[AttachmentData.item].label }), "error", 3500)
-            end
-        else
-            Inventory[CurrentWeaponData.slot].info.attachments = {}
-            Inventory[CurrentWeaponData.slot].info.attachments[#Inventory[CurrentWeaponData.slot].info.attachments+1] = {
-                component = AttachmentData.component,
-                label = QBCore.Shared.Items[AttachmentData.item].label,
-                item = AttachmentData.item,
-                type = AttachmentData.type,
-            }
-            TriggerClientEvent("addAttachment", src, AttachmentData.component)
-            Player.Functions.SetInventory(Player.PlayerData.items, true)
-            Player.Functions.RemoveItem(ItemData.name, 1)
-            SetTimeout(1000, function()
-                TriggerClientEvent('inventory:client:ItemBox', src, ItemData, "remove")
-            end)
-        end
-    end
-    if GiveBackItem then
-        Player.Functions.AddItem(GiveBackItem, 1, false)
-    end
-end)
-
-RegisterNetEvent('weapons:server:removeWeaponAmmoItem', function(item)
+RegisterNetEvent('qb-weapons:server:removeWeaponAmmoItem', function(item)
     local Player = QBCore.Functions.GetPlayer(source)
-
     if not Player or type(item) ~= 'table' or not item.name or not item.slot then return end
-
-    Player.Functions.RemoveItem(item.name, 1, item.slot)
+    exports['qb-inventory']:RemoveItem(source, item.name, 1, item.slot, 'qb-weapons:server:removeWeaponAmmoItem')
 end)
 
 -- Commands
 
-QBCore.Commands.Add("repairweapon", "Repair Weapon (God Only)", {{name="hp", help=Lang:t('info.hp_of_weapon')}}, true, function(source, args)
-    TriggerClientEvent('weapons:client:SetWeaponQuality', source, tonumber(args[1]))
-end, "god")
+QBCore.Commands.Add('repairweapon', 'Repair Weapon (God Only)', { { name = 'hp', help = Lang:t('info.hp_of_weapon') } }, true, function(source, args)
+    TriggerClientEvent('qb-weapons:client:SetWeaponQuality', source, tonumber(args[1]))
+end, 'god')
 
 -- Items
 
 -- AMMO
-QBCore.Functions.CreateUseableItem('pistol_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_PISTOL', 12, item)
-end)
+local AmmoTypes = {
+    pistol_ammo = { ammoType = 'AMMO_PISTOL', amount = 30 },
+    rifle_ammo = { ammoType = 'AMMO_RIFLE', amount = 30 },
+    smg_ammo = { ammoType = 'AMMO_SMG', amount = 30 },
+    shotgun_ammo = { ammoType = 'AMMO_SHOTGUN', amount = 10 },
+    mg_ammo = { ammoType = 'AMMO_MG', amount = 30 },
+    snp_ammo = { ammoType = 'AMMO_SNIPER', amount = 10 },
+    emp_ammo = { ammoType = 'AMMO_EMPLAUNCHER', amount = 10 }
+}
 
-QBCore.Functions.CreateUseableItem('rifle_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_RIFLE', 30, item)
-end)
-
-QBCore.Functions.CreateUseableItem('smg_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_SMG', 20, item)
-end)
-
-QBCore.Functions.CreateUseableItem('shotgun_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_SHOTGUN', 10, item)
-end)
-
-QBCore.Functions.CreateUseableItem('mg_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_MG', 30, item)
-end)
-
-QBCore.Functions.CreateUseableItem('snp_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_SNIPER', 10, item)
-end)
-
-QBCore.Functions.CreateUseableItem('emp_ammo', function(source, item)
-    TriggerClientEvent('weapons:client:AddAmmo', source, 'AMMO_EMPLAUNCHER', 10, item)
-end)
+for ammoItem, properties in pairs(AmmoTypes) do
+    QBCore.Functions.CreateUseableItem(ammoItem, function(source, item)
+        TriggerClientEvent('qb-weapons:client:AddAmmo', source, properties.ammoType, properties.amount, item)
+    end)
+end
 
 -- TINTS
-QBCore.Functions.CreateUseableItem('weapontint_black', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 0)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_green', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 1)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_gold', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 2)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_pink', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 3)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_army', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 4)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_lspd', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 5)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_orange', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 6)
-end)
-
-QBCore.Functions.CreateUseableItem('weapontint_plat', function(source)
-    TriggerClientEvent('weapons:client:EquipTint', source, 7)
-end)
-
--- ATTACHMENTS
-QBCore.Functions.CreateUseableItem('pistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol_flashlight', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'flashlight')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol_suppressor', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'suppressor')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpistol_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('appistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('appistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('appistol_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol50_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol50_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('pistol50_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('heavypistol_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('revolver_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('doubleaction_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('revolver_vipvariant', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'vipvariant')
-end)
 
-QBCore.Functions.CreateUseableItem('revolver_bodyguardvariant', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'bodyguardvariant')
-end)
-
-QBCore.Functions.CreateUseableItem('snspistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('snspistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('snspistol_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavypistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavypistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavypistol_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('vintagepistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('vintagepistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('microsmg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('microsmg_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('microsmg_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_suppressor', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'suppressor')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('smg_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultsmg_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultsmg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('pumpshotgun_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('sawnoffshotgun_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultsmg_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('minismg_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('minismg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('machinepistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('machinepistol_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('machinepistol_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpistol_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('emplauncher_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('shotgun_suppressor', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'suppressor')
-end)
-
-QBCore.Functions.CreateUseableItem('pumpshotgun_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('sawnoffshotgun_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('sniper_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultshotgun_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultshotgun_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavyshotgun_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavyshotgun_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavyshotgun_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultrifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultrifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultrifle_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('rifle_flashlight', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'flashlight')
-end)
-
-QBCore.Functions.CreateUseableItem('rifle_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('rifle_suppressor', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'suppressor')
-end)
-
-QBCore.Functions.CreateUseableItem('sniperrifle_suppressor', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'suppressor')
-end)
-
-QBCore.Functions.CreateUseableItem('assaultrifle_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('carbinerifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('carbinerifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('carbinerifle_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('combatpdw_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('carbinerifle_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('carbinerifle_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('advancedrifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('advancedrifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('advancedrifle_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('specialcarbine_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('specialcarbine_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('bullpupshotgun_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('specialcarbine_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('specialcarbine_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('bullpuprifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('bullpuprifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('bullpuprifle_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('compactrifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('compactrifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('compactrifle_drum', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'drum')
-end)
-
-QBCore.Functions.CreateUseableItem('gusenberg_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('gusenberg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('microsmg_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('microsmg_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('sniperrifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('sniper_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('snipermax_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('sniper_grip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'grip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavysniper_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('heavysniper_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('marksmanrifle_defaultclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'defaultclip')
-end)
-
-QBCore.Functions.CreateUseableItem('marksmanrifle_extendedclip', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'extendedclip')
-end)
-
-QBCore.Functions.CreateUseableItem('marksmanrifle_scope', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'scope')
-end)
-
-QBCore.Functions.CreateUseableItem('marksmanrifle_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
-end)
-
-QBCore.Functions.CreateUseableItem('snspistol_luxuryfinish', function(source, item)
-    TriggerClientEvent('weapons:client:EquipAttachment', source, item, 'luxuryfinish')
+local function GetWeaponSlotByName(items, weaponName)
+    for index, item in pairs(items) do
+        if item.name == weaponName then
+            return item, index
+        end
+    end
+    return nil, nil
+end
+
+local function IsMK2Weapon(weaponHash)
+    local weaponName = QBCore.Shared.Weapons[weaponHash]['name']
+    return string.find(weaponName, 'mk2') ~= nil
+end
+
+local function EquipWeaponTint(source, tintIndex, item, isMK2)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return end
+
+    local ped = GetPlayerPed(source)
+    local selectedWeaponHash = GetSelectedPedWeapon(ped)
+
+    if selectedWeaponHash == `WEAPON_UNARMED` then
+        TriggerClientEvent('QBCore:Notify', source, 'You have no weapon selected.', 'error')
+        return
+    end
+
+    local weaponName = QBCore.Shared.Weapons[selectedWeaponHash].name
+    if not weaponName then return end
+
+    if isMK2 and not IsMK2Weapon(selectedWeaponHash) then
+        TriggerClientEvent('QBCore:Notify', source, 'This tint is only for MK2 weapons', 'error')
+        return
+    end
+
+    local weaponSlot, weaponSlotIndex = GetWeaponSlotByName(Player.PlayerData.items, weaponName)
+    if not weaponSlot then return end
+
+    if weaponSlot.info.tint == tintIndex then
+        TriggerClientEvent('QBCore:Notify', source, 'This tint is already applied to your weapon.', 'error')
+        return
+    end
+
+    weaponSlot.info.tint = tintIndex
+    Player.PlayerData.items[weaponSlotIndex] = weaponSlot
+    Player.Functions.SetInventory(Player.PlayerData.items, true)
+    exports['qb-inventory']:RemoveItem(source, item, 1, false, 'qb-weapon:EquipWeaponTint')
+    TriggerClientEvent('qb-inventory:client:ItemBox', source, QBCore.Shared.Items[item], 'remove')
+    TriggerClientEvent('qb-weapons:client:EquipTint', source, selectedWeaponHash, tintIndex)
+end
+
+for i = 0, 7 do
+    QBCore.Functions.CreateUseableItem('weapontint_' .. i, function(source, item)
+        EquipWeaponTint(source, i, item.name, false)
+    end)
+end
+
+for i = 0, 32 do
+    QBCore.Functions.CreateUseableItem('weapontint_mk2_' .. i, function(source, item)
+        EquipWeaponTint(source, i, item.name, true)
+    end)
+end
+
+-- Attachments
+
+local function HasAttachment(component, attachments)
+    for k, v in pairs(attachments) do
+        if v.component == component then
+            return true, k
+        end
+    end
+    return false, nil
+end
+
+local function DoesWeaponTakeWeaponComponent(item, weaponName)
+    if WeaponAttachments[item] and WeaponAttachments[item][weaponName] then
+        return WeaponAttachments[item][weaponName]
+    end
+    return false
+end
+
+local function EquipWeaponAttachment(src, item)
+    local shouldRemove = false
+    local ped = GetPlayerPed(src)
+    local selectedWeaponHash = GetSelectedPedWeapon(ped)
+    if selectedWeaponHash == `WEAPON_UNARMED` then return end
+    local weaponName = QBCore.Shared.Weapons[selectedWeaponHash].name
+    if not weaponName then return end
+    local attachmentComponent = DoesWeaponTakeWeaponComponent(item, weaponName)
+    if not attachmentComponent then
+        TriggerClientEvent('QBCore:Notify', src, 'This attachment is not valid for the selected weapon.', 'error')
+        return
+    end
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+    local weaponSlot, weaponSlotIndex = GetWeaponSlotByName(Player.PlayerData.items, weaponName)
+    if not weaponSlot then return end
+    weaponSlot.info.attachments = weaponSlot.info.attachments or {}
+    local hasAttach, attachIndex = HasAttachment(attachmentComponent, weaponSlot.info.attachments)
+    if hasAttach then
+        RemoveWeaponComponentFromPed(ped, selectedWeaponHash, attachmentComponent)
+        table.remove(weaponSlot.info.attachments, attachIndex)
+    else
+        weaponSlot.info.attachments[#weaponSlot.info.attachments + 1] = {
+            component = attachmentComponent,
+        }
+        GiveWeaponComponentToPed(ped, selectedWeaponHash, attachmentComponent)
+        shouldRemove = true
+    end
+    Player.PlayerData.items[weaponSlotIndex] = weaponSlot
+    Player.Functions.SetInventory(Player.PlayerData.items, true)
+    if shouldRemove then
+        exports['qb-inventory']:RemoveItem(src, item, 1, false, 'qb-weapons:EquipWeaponAttachment')
+        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove')
+    end
+end
+
+for attachmentItem in pairs(WeaponAttachments) do
+    QBCore.Functions.CreateUseableItem(attachmentItem, function(source, item)
+        EquipWeaponAttachment(source, item.name)
+    end)
+end
+
+QBCore.Functions.CreateCallback('qb-weapons:server:RemoveAttachment', function(source, cb, AttachmentData, WeaponData)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local Inventory = Player.PlayerData.items
+    local allAttachments = WeaponAttachments
+    local AttachmentComponent = allAttachments[AttachmentData.attachment][WeaponData.name]
+    if Inventory[WeaponData.slot] then
+        if Inventory[WeaponData.slot].info.attachments and next(Inventory[WeaponData.slot].info.attachments) then
+            local HasAttach, key = HasAttachment(AttachmentComponent, Inventory[WeaponData.slot].info.attachments)
+            if HasAttach then
+                table.remove(Inventory[WeaponData.slot].info.attachments, key)
+                Player.Functions.SetInventory(Player.PlayerData.items, true)
+                exports['qb-inventory']:AddItem(src, AttachmentData.attachment, 1, false, false, 'qb-weapons:server:RemoveAttachment')
+                TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[AttachmentData.attachment], 'add')
+                TriggerClientEvent('QBCore:Notify', src, Lang:t('info.removed_attachment', { value = QBCore.Shared.Items[AttachmentData.attachment].label }), 'error')
+                cb(Inventory[WeaponData.slot].info.attachments)
+            else
+                cb(false)
+            end
+        else
+            cb(false)
+        end
+    else
+        cb(false)
+    end
 end)
